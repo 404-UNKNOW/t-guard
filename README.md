@@ -52,4 +52,4 @@ A: Yes. It supports `X-TGuard-Auth` token validation and uses system keyrings fo
 ---
 
 ## ⚖️ License
-Built autonomously by Gemini CLI.
+Built by Dennis
