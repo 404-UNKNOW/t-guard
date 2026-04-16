@@ -1,23 +1,23 @@
-# T-Guard 配置文件
+# T-Guard Configuration File
 
-# 数据存储目录
+# Directory for persistent data (sqlite, etc.)
 data_dir: "./data"
 
-# 监听地址
+# Gateway listening port
 listen: "8080"
 
-# 默认项目 ID
+# Default project identifier
 project: "default-project"
 
-# 鉴权令牌 (客户端请求时需携带 X-TGuard-Auth: your-secret-token)
+# Admission token (Clients must include header X-TGuard-Auth: your-secret-token)
 auth_key: "your-secret-token"
 
-# 上游服务配置
+# Upstream AI services
 upstreams:
   openai: "https://api.openai.com"
   anthropic: "https://api.anthropic.com"
 
-# 动态路由规则
+# Dynamic routing rules
 rules:
   - id: "claude-rule"
     priority: 200
@@ -30,8 +30,8 @@ rules:
     action:
       target: "openai"
 
-# 计费预算配置
+# Budget and circuit breaker settings
 budget:
   - project: "default-project"
-    hard_limit: 1000000  # 1000 美分 (10 USD)
-    soft_limit: 0.8      # 80% 触发预警
+    hard_limit: 1000000  # 1000 millicents (10.00 USD)
+    soft_limit: 0.8      # Alert at 80% usage

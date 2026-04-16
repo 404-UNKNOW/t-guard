@@ -1,56 +1,55 @@
-# 🛡️ T-Guard | AI 流量全自动守卫
+# 🛡️ T-Guard | Autonomous AI Traffic Sentinel
 
-**T-Guard** 是一个专门为您设计的 AI 成本管家。即使您完全不懂编程，也能通过它轻松管理 Claude、OpenAI 等 AI 工具的使用额度，防止余额被意外刷爆。
-
----
-
-## 🌟 核心能力
-- **防刷报警**：设定每天只能花多少钱，超额自动切断，保护钱包。
-- **智能分流**：根据您问的问题，自动帮您选最便宜或最强大的模型。
-- **实时看板**：像看股票一样，实时监控每一分钱花在了哪个模型上。
-- **一键托管**：直接运行您的 AI 工具，它会自动在后台保护。
+**T-Guard** is a high-performance, precision AI gateway designed to protect your budget. It monitors, routes, and controls AI traffic (OpenAI, Claude, etc.) in real-time, ensuring you never exceed your spending limits.
 
 ---
 
-## 🚀 3步快速开始（Windows/Mac/Linux 通用）
+## 🌟 Core Features
+- **Budget Guardian**: Set hard/soft daily spending limits. Automatically cuts off traffic to prevent unexpected bills.
+- **Smart Routing**: High-performance Aho-Corasick engine to route requests based on model names or custom rules.
+- **Real-time Monitoring**: A beautiful Terminal UI (TUI) providing live cost tracking and request logs.
+- **Process Orchestration**: Automatically manages child processes (like CLI tools) and injects necessary proxy configurations.
+- **Enterprise Ready**: Includes SSE (Server-Sent Events) interception for accurate streaming token calculation and secure credential management.
 
-### 1. 准备配置
-复制 `config.example.yaml` 并重命名为 `config.yaml`。
-打开它，填入您的 API Key 和您想设定的预算上限。
+---
 
-### 2. 一键安装
-在终端（或命令行）执行以下命令：
+## 🚀 Quick Start (3 Steps)
+
+### 1. Configuration
+Copy `config.example.yaml` to `config.yaml`.
+Open it and fill in your API keys, upstream URLs, and daily budget limits.
+
+### 2. One-Click Setup
+Run the following command in your terminal:
 ```bash
-# 下载并安装所有依赖
-go mod tidy
-# 编译程序
-go build -o t-guard main.go
+# This will install dependencies, create config, and build the binary
+./setup.sh
 ```
 
-### 3. 开启守卫
-- **进入监控模式**（查看实时消费）：
+### 3. Launch the Sentinel
+- **Dashboard Mode** (View real-time usage):
   ```bash
   ./t-guard
   ```
-- **带守卫运行其他工具**（例如运行某个 AI 聊天工具）：
+- **Proxy Mode** (Run a tool under T-Guard's protection):
   ```bash
-  ./t-guard -- your-ai-tool-command
+  ./t-guard -- your-ai-command
   ```
 
 ---
 
-## 🛠️ 常见问题 (FAQ)
+## 🛠️ FAQ
 
-**Q: 我需要改代码吗？**
-A: **不需要**。您只需要修改 `config.yaml` 里的文字。
+**Q: Do I need to be a developer to use this?**
+A: **No**. T-Guard is designed to be user-friendly. Just edit the `config.yaml` file, and you're good to go.
 
-**Q: 怎么知道它生效了？**
-A: 只要看到紫色背景的监控界面（TUI），且左下角有“Used”数值在变动，说明守卫已就位。
+**Q: Does it support streaming (SSE)?**
+A: **Yes**. T-Guard intercepts streaming responses (like ChatGPT's typing effect) to calculate tokens with millicent precision.
 
-**Q: 报错“Unauthorized”怎么办？**
-A: 检查您的请求头里是否带了 `X-TGuard-Auth`。如果是用 `t-guard` 直接带起的子程序，它会自动处理，无需操心。
+**Q: Is it secure?**
+A: Yes. It supports `X-TGuard-Auth` token validation and uses system keyrings for sensitive credential storage.
 
 ---
 
-## ⚖️ 许可证
-由 AI Solo Dev 全自动构建。
+## ⚖️ License
+Built autonomously by Gemini CLI.
