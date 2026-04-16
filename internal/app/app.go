@@ -8,6 +8,7 @@ import (
 	"t-guard/internal/security"
 	"t-guard/internal/ui"
 	"t-guard/pkg/budget"
+	"t-guard/pkg/pricing"
 	"t-guard/pkg/route"
 	"t-guard/pkg/store"
 	"t-guard/pkg/token"
@@ -21,6 +22,7 @@ type App struct {
 	Store    store.Store
 	Security security.Manager
 	Token    token.Engine
+	Pricing  pricing.Engine
 	Router   route.Engine
 	Billing  budget.Controller
 	Proxy    proxy.Server
@@ -37,7 +39,8 @@ type Config struct {
 	Upstreams  map[string]string     `mapstructure:"upstreams"`
 	PublicKey  string                `mapstructure:"public_key"` // 契约要求
 	AuthKey    string                `mapstructure:"auth_key"`   // 代理准入令牌
-	Rules      []route.Rule          `mapstructure:"rules"`      // 动态路由规则
+	Rules      []route.Rule                   `mapstructure:"rules"`      // 动态路由规则
+	Pricing    map[string]pricing.ModelPrice `mapstructure:"pricing"`    // 模型定价
 }
 
 func (c *Config) Validate() error {
@@ -72,6 +75,9 @@ func InitializeApp(cfg *Config) (*App, func(), error) {
 
 	// 3. M0: Tokenizer
 	tokenizer := token.NewEngine()
+
+	// 3b. Pricing Engine
+	priceEngine := pricing.NewEngine(cfg.Pricing)
 // 4. M2: Router 路由
 router := route.NewEngine()
 // 优先加载配置文件中的规则，无规则时加载默认规则
@@ -104,9 +110,10 @@ px := proxy.NewServer(proxy.Config{
 	Router:        router,
 	Billing:       billing,
 	Store:         s,
+	Token:         tokenizer,
+	Pricing:       priceEngine,
 	AuthKey:       cfg.AuthKey,
 })
-
 
 	// 7. M5: TUI 界面
 	uim := ui.NewModel(ui.Config{
@@ -132,6 +139,7 @@ px := proxy.NewServer(proxy.Config{
 		Store:    s,
 		Security: sec,
 		Token:    tokenizer,
+		Pricing:  priceEngine,
 		Router:   router,
 		Billing:  billing,
 		Proxy:    px,

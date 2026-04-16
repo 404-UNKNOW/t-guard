@@ -2,17 +2,22 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 	"t-guard/pkg/route"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Server interface {
 	Start(ctx context.Context) error
 	Addr() net.Addr
+	UpdateAuthKey(key string)
 }
 
 type proxyServer struct {
@@ -41,9 +46,20 @@ func NewServer(cfg Config) Server {
 			model := req.Header.Get("X-Model-Target")
 			project := req.Header.Get("X-Project-ID")
 
+			// 提取 IP 和 Headers
+			clientIP, _, _ := net.SplitHostPort(req.RemoteAddr)
+			headers := make(map[string]string)
+			for k, v := range req.Header {
+				if len(v) > 0 {
+					headers[k] = v[0]
+				}
+			}
+
 			decision, err := cfg.Router.Decide(req.Context(), route.Request{
 				Model:   model,
 				Project: project,
+				IP:      clientIP,
+				Headers: headers,
 			})
 			if err != nil {
 				log.Printf("[proxy] routing decision failed: %v", err)
@@ -71,10 +87,31 @@ func NewServer(cfg Config) Server {
 				req.Header.Set(k, v)
 			}
 			req.Header.Set("X-TGuard-Rule", decision.RuleID)
+			
+			// 将决策存入 Context 以便 ErrorHandler 使用
+			*req = *req.WithContext(context.WithValue(req.Context(), "decision", decision))
 		},
 		ModifyResponse: s.modifyResponse,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Printf("[proxy] proxy error: %v", err)
+			
+			// 尝试 Fallback 逻辑
+			if decision, ok := r.Context().Value("decision").(route.Decision); ok && decision.FallbackTarget != "" {
+				log.Printf("[proxy] attempting fallback to: %s", decision.FallbackTarget)
+				targetURL, ok := cfg.Upstreams[decision.FallbackTarget]
+				if ok {
+					// 简单的重试逻辑：由于 Director 已经运行过，我们需要重新发起请求
+					// 在生产环境下，更推荐使用自定义 Transport 实现
+					r.URL.Scheme = targetURL.Scheme
+					r.URL.Host = targetURL.Host
+					r.Host = targetURL.Host
+					// 清除 Context 避免无限循环
+					*r = *r.WithContext(context.WithValue(r.Context(), "decision", route.Decision{}))
+					s.proxy.ServeHTTP(w, r)
+					return
+				}
+			}
+
 			w.WriteHeader(http.StatusBadGateway)
 			_, _ = w.Write([]byte("Gateway Error: Routing or Upstream Failure"))
 		},
@@ -91,10 +128,21 @@ func NewServer(cfg Config) Server {
 			}
 		}()
 
-		// 1. 健康检查开放
+		// 1. 公共端点 (健康检查与监控)
 		if r.URL.Path == "/health" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok"))
+			return
+		}
+
+		if r.URL.Path == "/metrics" {
+			promhttp.Handler().ServeHTTP(w, r)
+			return
+		}
+
+		// 1b. Admin API (仅限本地或带 Token 访问)
+		if strings.HasPrefix(r.URL.Path, "/admin/") {
+			s.handleAdmin(w, r)
 			return
 		}
 
@@ -113,6 +161,39 @@ func NewServer(cfg Config) Server {
 	})
 
 	return s
+}
+
+func (s *proxyServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
+	// 简单的安全检查
+	if s.config.AuthKey != "" && r.Header.Get("X-TGuard-Auth") != s.config.AuthKey {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	switch r.URL.Path {
+	case "/admin/rules":
+		if r.Method == http.MethodPost {
+			log.Printf("[audit] [admin] updating routing rules, user-agent: %s, remote: %s", r.UserAgent(), r.RemoteAddr)
+			var rules []route.Rule
+			if err := json.NewDecoder(r.Body).Decode(&rules); err != nil {
+				log.Printf("[audit] [admin] rule update failed: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := s.config.Router.LoadRules(rules); err != nil {
+				log.Printf("[audit] [admin] rule loading failed: %v", err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			log.Printf("[audit] [admin] successfully updated %d rules", len(rules))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"rules updated"}`))
+			return
+		}
+	case "/admin/pricing":
+		// TODO: 实现定价动态更新
+	}
+	http.Error(w, "Not Found", http.StatusNotFound)
 }
 
 func (s *proxyServer) modifyResponse(resp *http.Response) error {
@@ -153,4 +234,8 @@ func (s *proxyServer) Addr() net.Addr {
 		return nil
 	}
 	return s.ln.Addr()
+}
+
+func (s *proxyServer) UpdateAuthKey(key string) {
+	s.config.AuthKey = key
 }

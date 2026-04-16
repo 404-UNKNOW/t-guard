@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/url"
 	"t-guard/pkg/budget"
+	"t-guard/pkg/pricing"
 	"t-guard/pkg/route"
 	"t-guard/pkg/store"
+	"t-guard/pkg/token"
 	"time"
 )
 
@@ -16,6 +18,8 @@ type Config struct {
 	Router        route.Engine
 	Billing       budget.Controller
 	Store         store.Store
+	Token         token.Engine
+	Pricing       pricing.Engine
 	AuthKey       string // 代理准入令牌
 }
 

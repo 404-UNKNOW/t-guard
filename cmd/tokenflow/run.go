@@ -46,6 +46,13 @@ var runCmd = &cobra.Command{
 		}
 		defer cleanup()
 
+		// 1b. 安全加固：尝试从 Keyring 获取 AuthKey (覆盖配置)
+		if application.Security != nil {
+			if secret, err := application.Security.RetrieveSecret("tguard_auth_key"); err == nil && len(secret) > 0 {
+				application.Proxy.UpdateAuthKey(string(secret))
+			}
+		}
+
 		// 3. 核心准入检查
 		if info, err := application.Security.Verify(); err != nil || !info.IsValid {
 			log.Fatalf("安全性校验未通过: %v (有效性: %v)", err, info.IsValid)

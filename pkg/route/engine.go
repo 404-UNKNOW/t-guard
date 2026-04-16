@@ -118,6 +118,34 @@ func (e *routeEngine) Decide(ctx context.Context, req Request) (Decision, error)
 			}
 		}
 
+		// IP 匹配
+		if len(rule.Match.SourceIPs) > 0 {
+			match := false
+			for _, ip := range rule.Match.SourceIPs {
+				if req.IP == ip { // 简单实现，暂不支持 CIDR
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+
+		// Header 匹配
+		if len(rule.Match.Headers) > 0 {
+			match := true
+			for k, v := range rule.Match.Headers {
+				if req.Headers[k] != v {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+
 		// 关键词匹配
 		if len(rule.Match.Keywords) > 0 && !kwMatchedRules[i] {
 			continue
@@ -145,11 +173,12 @@ func (e *routeEngine) Decide(ctx context.Context, req Request) (Decision, error)
 		}
 
 		return Decision{
-			Target:     rule.Action.Target,
-			FinalModel: finalModel,
-			Headers:    rule.Action.Headers,
-			RuleID:     rule.ID,
-			Reason:     "Rule matched: " + rule.ID,
+			Target:         rule.Action.Target,
+			FallbackTarget: rule.Action.FallbackTarget,
+			FinalModel:     finalModel,
+			Headers:        rule.Action.Headers,
+			RuleID:         rule.ID,
+			Reason:         "Rule matched: " + rule.ID,
 		}, nil
 	}
 

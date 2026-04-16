@@ -89,6 +89,11 @@ func (c *budgetController) Record(ctx context.Context, project string, actualCos
 	
 	newUsed := pb.used.Add(actualCost)
 
+	// 更新 Prometheus 指标
+	budgetUsedMillicents.WithLabelValues(project).Set(float64(newUsed))
+	budgetLimitMillicents.WithLabelValues(project).Set(float64(pb.limit))
+	requestTotal.WithLabelValues(project, "success").Inc()
+
 	// 1. 原子持久化：写入 Store 异步队列
 	_ = c.store.Write(ctx, store.Record{
 		ID:             uuid.New(),

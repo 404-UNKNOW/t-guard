@@ -14,6 +14,8 @@ type Message struct {
 type Request struct {
 	Project      string
 	Model        string
+	IP           string
+	Headers      map[string]string
 	Messages     []Message
 	EstTokens    int
 	CurrentSpend int64 // 毫美分
@@ -21,28 +23,32 @@ type Request struct {
 
 // Decision 决策结果
 type Decision struct {
-	Target      string
-	FinalModel  string
-	Headers     map[string]string
-	RuleID      string
-	Preempted   bool
-	Reason      string
+	Target         string
+	FallbackTarget string
+	FinalModel     string
+	Headers        map[string]string
+	RuleID         string
+	Preempted      bool
+	Reason         string
 }
 
 // MatchCond 匹配条件
 type MatchCond struct {
-	Keywords  []string // 提示词包含任意关键词
-	Models    []string // 模型名前缀匹配
-	MinTokens int      // 最小预估 token 数触发
-	MaxBudget int64    // 该规则的最大预算限制
+	Keywords  []string          // 提示词包含任意关键词
+	Models    []string          // 模型名前缀匹配
+	SourceIPs []string          // 来源 IP 匹配
+	Headers   map[string]string // 特定 Header 匹配
+	MinTokens int               // 最小预估 token 数触发
+	MaxBudget int64             // 该规则的最大预算限制
 }
 
 // RouteAction 路由动作
 type RouteAction struct {
-	Target    string
-	ModelMap  map[string]string
-	Headers   map[string]string
-	Transform string
+	Target         string
+	FallbackTarget string            // 主目标失败时的备选目标
+	ModelMap       map[string]string
+	Headers        map[string]string
+	Transform      string
 }
 
 // Rule 路由规则

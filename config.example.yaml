@@ -17,6 +17,22 @@ upstreams:
   openai: "https://api.openai.com"
   anthropic: "https://api.anthropic.com"
 
+# Model pricing per 1,000,000 tokens (unit: millicents)
+# Example: 50 millicents = 0.05 cents = 0.0005 USD
+pricing:
+  default:
+    input_price: 50
+    output_price: 150
+  gpt-4:
+    input_price: 3000
+    output_price: 6000
+  gpt-3.5-turbo:
+    input_price: 50
+    output_price: 150
+  claude-3-opus:
+    input_price: 1500
+    output_price: 7500
+
 # Dynamic routing rules
 rules:
   - id: "claude-rule"

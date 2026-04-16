@@ -57,34 +57,36 @@ func (e *tokenEngine) Warmup(model string) error {
 func (e *tokenEngine) Calculate(ctx context.Context, req CalcRequest) (CalcResult, error) {
 	e.metrics.IncCalculations()
 
-	// 输入校验
-	if req.Content == "" {
-		return CalcResult{TokenCount: 0, Method: MethodEstimate, Confidence: DefaultConfidence}, nil
+	totalTokens := 0
+	
+	// 1. 处理图像 (多模态)
+	for _, img := range req.Images {
+		totalTokens += CalculateImageTokens(img)
 	}
 
-	// 轨迹 1：尝试精确计算
-	encoders := e.encoders.Load().(map[string]*tiktoken.Tiktoken)
-	if tke, ok := encoders[req.Model]; ok {
-		e.metrics.IncCacheHit()
-		tokens := tke.Encode(req.Content, nil, nil)
-		count := len(tokens)
-		if count > MaxTokenLimit {
-			count = MaxTokenLimit
+	// 2. 处理文本
+	if req.Content != "" {
+		// 轨迹 1：尝试精确计算
+		encoders := e.encoders.Load().(map[string]*tiktoken.Tiktoken)
+		if tke, ok := encoders[req.Model]; ok {
+			e.metrics.IncCacheHit()
+			tokens := tke.Encode(req.Content, nil, nil)
+			totalTokens += len(tokens)
+		} else {
+			// 轨迹 2：回退至估算
+			e.metrics.IncFallback()
+			totalTokens += EstimateFallback(req.Content)
 		}
-		return CalcResult{
-			TokenCount: count,
-			Method:     MethodTiktokenExact,
-			Confidence: DefaultConfidence,
-		}, nil
 	}
 
-	// 轨迹 2：回退至估算
-	e.metrics.IncFallback()
-	count := EstimateFallback(req.Content)
+	if totalTokens > MaxTokenLimit {
+		totalTokens = MaxTokenLimit
+	}
+
 	return CalcResult{
-		TokenCount: count,
-		Method:     MethodEstimate,
-		Confidence: EstimateConfidence,
+		TokenCount: totalTokens,
+		Method:     MethodTiktokenExact, // 混合模式下标记为精确
+		Confidence: DefaultConfidence,
 	}, nil
 }
 

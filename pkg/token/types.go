@@ -4,11 +4,19 @@ import (
 	"context"
 )
 
+// ImagePart 描述图像输入
+type ImagePart struct {
+	Base64 string
+	Format string // "jpeg", "png", "webp", "gif"
+	Detail string // "low", "high", "auto"
+}
+
 // CalcRequest 定义输入结构
 type CalcRequest struct {
-	Model   string // 如 "gpt-4", "claude-3-opus"
-	Content string // 待计算的文本
-	Type    string // "prompt" 或 "completion"
+	Model   string      // 如 "gpt-4", "claude-3-opus"
+	Content string      // 待计算的文本
+	Images  []ImagePart // 图像输入
+	Type    string      // "prompt" 或 "completion"
 }
 
 // CalcResult 定义输出结构

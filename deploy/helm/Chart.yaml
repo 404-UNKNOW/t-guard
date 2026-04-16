@@ -1,0 +1,6 @@
+apiVersion: v2
+name: t-guard
+description: A Helm chart for T-Guard AI Gateway
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

@@ -19,6 +19,7 @@ type sqliteStore struct {
 	queue   chan Record
 	closed  atomic.Bool
 	wg      sync.WaitGroup
+	workers int
 }
 
 func NewSQLiteStore(dsn string) (Store, error) {
@@ -28,18 +29,25 @@ func NewSQLiteStore(dsn string) (Store, error) {
 		return nil, err
 	}
 
+	// 限制连接池以减少 SQLite 锁竞争
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(2)
+
 	s := &sqliteStore{
-		db:    db,
-		queue: make(chan Record, 2000), // 增大容量
+		db:      db,
+		queue:   make(chan Record, 5000),
+		workers: 3, // 生产建议 2-4 个 worker 对应磁盘 I/O
 	}
 
 	if err := s.initSchema(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
-	s.wg.Add(1)
-	go s.worker()
+	for i := 0; i < s.workers; i++ {
+		s.wg.Add(1)
+		go s.worker()
+	}
 
 	return s, nil
 }
