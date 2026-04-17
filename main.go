@@ -10,28 +10,29 @@ import (
 	"syscall"
 	"t-guard/internal/app"
 	"t-guard/internal/process"
-	"t-guard/pkg/budget"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	// 1. 模拟配置加载 (Stable 模式建议使用统一 DI)
+	// 1. 尝试加载配置，若不存在则运行向导
 	cfg := &app.Config{
 		DataDir: ".",
 		Listen:  "127.0.0.1:8080",
 		Project: "test-project",
-		Upstreams: map[string]string{
-			"openai": "https://api.openai.com",
-		},
-		Budget: []budget.BudgetConfig{
-			{
-				Project:   "test-project",
-				HardLimit: 1000000,
-				SoftLimit: 0.8,
-			},
-		},
+	}
+
+	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
+		fmt.Println("Config file not found.")
+		wizardCfg, err := app.RunWizard()
+		if err != nil {
+			log.Fatalf("Wizard failed: %v", err)
+		}
+		cfg = wizardCfg
+	} else {
+		// 正常逻辑：此处应从文件读取，演示版暂时保留 mock 加载
+		// TODO: 生产环境应统一使用 Viper 加载
 	}
 
 	// 2. 初始化全量应用

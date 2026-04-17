@@ -52,6 +52,8 @@ func initConfig() {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err == nil {
-		// fmt.Println("使用配置文件:", viper.ConfigFileUsed())
+		// fmt.Println("Using config file:", viper.ConfigFileUsed())
+	} else {
+		// 配置文件不存在时，静默处理，由 run 命令决定是否开启向导
 	}
 }

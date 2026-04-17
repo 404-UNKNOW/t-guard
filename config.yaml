@@ -1,0 +1,53 @@
+# T-Guard Configuration File
+
+# Directory for persistent data (sqlite, etc.)
+data_dir: "./data"
+
+# Gateway listening port
+listen: "8080"
+
+# Default project identifier
+project: "default-project"
+
+# Admission token (Clients must include header X-TGuard-Auth: your-secret-token)
+auth_key: "your-secret-token"
+
+# Upstream AI services
+upstreams:
+  openai: "https://api.openai.com"
+  anthropic: "https://api.anthropic.com"
+
+# Model pricing per 1,000,000 tokens (unit: millicents)
+# Example: 50 millicents = 0.05 cents = 0.0005 USD
+pricing:
+  default:
+    input_price: 50
+    output_price: 150
+  gpt-4:
+    input_price: 3000
+    output_price: 6000
+  gpt-3.5-turbo:
+    input_price: 50
+    output_price: 150
+  claude-3-opus:
+    input_price: 1500
+    output_price: 7500
+
+# Dynamic routing rules
+rules:
+  - id: "claude-rule"
+    priority: 200
+    match:
+      model: "claude-*"
+    action:
+      target: "anthropic"
+  - id: "default-rule"
+    priority: 100
+    action:
+      target: "openai"
+
+# Budget and circuit breaker settings
+budget:
+  - project: "default-project"
+    hard_limit: 100  # 1000 millicents (10.00 USD)
+    soft_limit: 0.8      # Alert at 80% usage

@@ -24,10 +24,18 @@ var runCmd = &cobra.Command{
   tokenflow run claude-code
   tokenflow run --port 9000 -- openai-chat`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// 1. 加载配置 (从 Viper 反序列化)
+		// 1. 尝试加载配置
 		var appCfg app.Config
-		if err := viper.Unmarshal(&appCfg); err != nil {
-			log.Fatalf("无法解析配置: %v", err)
+		err := viper.Unmarshal(&appCfg)
+		
+		// 如果 DataDir 为空或 Upstreams 为空，说明可能没有加载到配置文件
+		if err != nil || appCfg.DataDir == "" || len(appCfg.Upstreams) == 0 {
+			fmt.Println("No configuration found.")
+			wizardCfg, err := app.RunWizard()
+			if err != nil {
+				log.Fatalf("Wizard failed: %v", err)
+			}
+			appCfg = *wizardCfg
 		}
 
 		// 补全默认值逻辑
