@@ -10,17 +10,22 @@ import (
 )
 
 type unixManager struct {
-	cmd *exec.Cmd
+	cmd      *exec.Cmd
+	executor *SecureExecutor
 }
 
-func NewManager() Manager {
-	return &unixManager{}
+func NewManager(cfg Config) Manager {
+	return &unixManager{
+		executor: NewSecureExecutorWithConfig(cfg.Whitelist, cfg.Timeout),
+	}
 }
 
 func (m *unixManager) Run(ctx context.Context, cfg ChildConfig) error {
-	m.cmd = exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-	m.cmd.Env = prepareEnv(cfg)
-	m.cmd.Dir = cfg.WorkingDir
+	cmd, err := m.executor.PrepareCommand(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	m.cmd = cmd
 	m.cmd.Stdout = os.Stdout
 	m.cmd.Stderr = os.Stderr
 	m.cmd.Stdin = os.Stdin

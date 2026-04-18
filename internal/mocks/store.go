@@ -32,6 +32,10 @@ func (m *MockStore) QueryProjects(ctx context.Context) ([]string, error) {
 	return []string{"test-project"}, nil
 }
 
+func (m *MockStore) DeductBudget(ctx context.Context, r store.Record, limit int64) error {
+	return nil
+}
+
 func (m *MockStore) Archive(ctx context.Context, beforeDate string) (int, error) {
 	return 0, nil
 }

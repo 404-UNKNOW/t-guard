@@ -10,12 +10,16 @@ import (
 	"syscall"
 	"t-guard/internal/app"
 	"t-guard/internal/process"
+	"t-guard/pkg/logger"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
+	// 初始化日志
+	logger.Init()
+
 	// 1. 尝试加载配置，若不存在则运行向导
 	cfg := &app.Config{
 		DataDir: ".",
@@ -31,8 +35,13 @@ func main() {
 		}
 		cfg = wizardCfg
 	} else {
-		// 正常逻辑：此处应从文件读取，演示版暂时保留 mock 加载
-		// TODO: 生产环境应统一使用 Viper 加载
+		// 正常逻辑：生产模式加载配置并进行权限校验
+		loadedCfg, err := app.LoadConfig("config.yaml", true)
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+		cfg = loadedCfg
+		log.Printf("[t-guard] Configuration loaded: %s", cfg.MaskConfig())
 	}
 
 	// 2. 初始化全量应用
@@ -92,8 +101,21 @@ func main() {
 	// 6. 优雅关闭
 	sig := <-sigChan
 	fmt.Printf("\n[t-guard] Shutting down (Signal: %v)...\n", sig)
-	cancel()
+	
+	// 设置优雅关闭超时
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	cancel() // 通知所有 context 退出
+	
+	// 执行清理逻辑
 	_ = application.Process.Cleanup()
-	time.Sleep(500 * time.Millisecond)
-	fmt.Println("[t-guard] Goodbye.")
+	
+	// 等待清理完成或超时
+	select {
+	case <-shutdownCtx.Done():
+		fmt.Println("[t-guard] Shutdown timed out.")
+	case <-time.After(500 * time.Millisecond):
+		fmt.Println("[t-guard] Goodbye.")
+	}
 }

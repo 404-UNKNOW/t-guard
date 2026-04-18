@@ -36,7 +36,7 @@ func TestEnv_Prepare(t *testing.T) {
 
 // 验收标准：基本的进程启动与生命周期测试
 func TestManager_Run(t *testing.T) {
-	m := NewManager()
+	m := NewManager(Config{Whitelist: []string{"go"}})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

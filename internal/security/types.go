@@ -16,12 +16,13 @@ const (
 // LicenseInfo 描述许可证状态
 type LicenseInfo struct {
 	Tier        string    `json:"tier"` // "free", "pro", "enterprise"
+	IssuedAt    time.Time `json:"issued_at"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	Nonce       string    `json:"nonce"`
 	Features    []Feature `json:"features"`
 	MaxProjects int       `json:"max_projects"`
 	IsValid     bool      `json:"is_valid"`
 	GracePeriod bool      `json:"grace_period"` // 离线宽限期
-	Mock        string    `json:"mock,omitempty"`
 }
 
 // Manager 核心安全接口

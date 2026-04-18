@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"t-guard/pkg/budget"
 	"t-guard/pkg/pricing"
+	"t-guard/pkg/ratelimit"
 	"t-guard/pkg/route"
 	"t-guard/pkg/store"
 	"t-guard/pkg/token"
@@ -21,6 +22,7 @@ type Config struct {
 	Token         token.Engine
 	Pricing       pricing.Engine
 	AuthKey       string // 代理准入令牌
+	RateLimit     *ratelimit.Limiter
 }
 
 type StreamStats struct {

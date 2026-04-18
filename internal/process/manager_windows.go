@@ -12,18 +12,23 @@ import (
 )
 
 type windowsManager struct {
-	cmd *exec.Cmd
-	job windows.Handle
+	cmd      *exec.Cmd
+	job      windows.Handle
+	executor *SecureExecutor
 }
 
-func NewManager() Manager {
-	return &windowsManager{}
+func NewManager(cfg Config) Manager {
+	return &windowsManager{
+		executor: NewSecureExecutorWithConfig(cfg.Whitelist, cfg.Timeout),
+	}
 }
 
 func (m *windowsManager) Run(ctx context.Context, cfg ChildConfig) error {
-	m.cmd = exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-	m.cmd.Env = prepareEnv(cfg)
-	m.cmd.Dir = cfg.WorkingDir
+	cmd, err := m.executor.PrepareCommand(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	m.cmd = cmd
 	m.cmd.Stdout = os.Stdout
 	m.cmd.Stderr = os.Stderr
 	m.cmd.Stdin = os.Stdin

@@ -29,9 +29,9 @@ func NewSQLiteStore(dsn string) (Store, error) {
 		return nil, err
 	}
 
-	// 限制连接池以减少 SQLite 锁竞争
-	db.SetMaxOpenConns(5)
-	db.SetMaxIdleConns(2)
+	// 限制连接池以减少 SQLite 锁竞争 (SQLite 单写入建议设置为 1)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	s := &sqliteStore{
 		db:      db,
@@ -130,13 +130,14 @@ func (s *sqliteStore) worker() {
 }
 
 func (s *sqliteStore) flushBatch(batch []Record) error {
-	tx, err := s.db.Begin()
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`INSERT INTO records (id, trace_id, project, model, input_tokens, output_tokens, cost_millicents, route_target, duration_ms, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO records (id, trace_id, project, model, input_tokens, output_tokens, cost_millicents, route_target, duration_ms, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -145,7 +146,7 @@ func (s *sqliteStore) flushBatch(batch []Record) error {
 	for _, r := range batch {
 		tsStr := r.Timestamp.UTC().Format("2006-01-02 15:04:05")
 		dateStr := tsStr[:10]
-		if _, err := stmt.Exec(r.ID.String(), r.TraceID, r.Project, r.Model, r.InputTokens, r.OutputTokens, r.CostMillicents, r.RouteTarget, r.DurationMs, tsStr); err != nil {
+		if _, err := stmt.ExecContext(ctx, r.ID.String(), r.TraceID, r.Project, r.Model, r.InputTokens, r.OutputTokens, r.CostMillicents, r.RouteTarget, r.DurationMs, tsStr); err != nil {
 			return err
 		}
 
@@ -161,7 +162,7 @@ func (s *sqliteStore) flushBatch(batch []Record) error {
 				COALESCE(json_extract(model_stats, '$."' || ? || '"'), 0) + 1
 			);
 		`
-		if _, err := tx.Exec(upsertSQL, dateStr, r.Project, r.CostMillicents, r.Model, r.Model, r.Model); err != nil {
+		if _, err := tx.ExecContext(ctx, upsertSQL, dateStr, r.Project, r.CostMillicents, r.Model, r.Model, r.Model); err != nil {
 			return err
 		}
 	}

@@ -73,8 +73,8 @@ func RunWizard() (*Config, error) {
 		Upstreams: map[string]string{
 			"default": upstreamURL,
 		},
-		Budget: []budget.BudgetConfig{
-			{
+		Budget: []interface{}{
+			budget.BudgetConfig{
 				Project:   "default-project",
 				HardLimit: int64(answers.BudgetUSD * 100000), // 转化为毫美分
 				SoftLimit: 0.8,

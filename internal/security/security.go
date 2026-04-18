@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"t-guard/pkg/store"
 	"time"
@@ -53,16 +54,18 @@ func (m *securityManager) Activate(licenseKey string) error {
 
 	// RSA 验签
 	if err := VerifyRSASignature(payload, sig); err != nil {
-		return errors.New("许可证签名验证失败")
+		return ErrInvalidSignature
 	}
 
 	var info LicenseInfo
 	if err := json.Unmarshal(payload, &info); err != nil {
-		return fmt.Errorf("解析数据失败: %w", err)
+		log.Printf("[SECURITY] JSON unmarshal failed: %v", err)
+		return ErrInvalidSignature
 	}
 
-	if time.Now().After(info.ExpiresAt) {
-		return errors.New("许可证已过期")
+	// 业务层验证：时间与防重放
+	if err := VerifyLicense(info); err != nil {
+		return err
 	}
 
 	info.IsValid = true

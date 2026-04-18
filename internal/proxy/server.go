@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"t-guard/pkg/logger"
 	"t-guard/pkg/route"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 type Server interface {
@@ -129,9 +131,21 @@ func NewServer(cfg Config) Server {
 		}()
 
 		// 1. 公共端点 (健康检查与监控)
-		if r.URL.Path == "/health" {
+		if r.URL.Path == "/health/live" {
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("ok"))
+			_, _ = w.Write([]byte("live"))
+			return
+		}
+
+		if r.URL.Path == "/health/ready" {
+			// 检查数据库
+			if _, err := s.config.Store.QueryProjects(r.Context()); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("db_not_ready"))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ready"))
 			return
 		}
 
@@ -150,14 +164,44 @@ func NewServer(cfg Config) Server {
 		if s.config.AuthKey != "" {
 			authHeader := r.Header.Get("X-TGuard-Auth")
 			if authHeader != s.config.AuthKey {
-				log.Printf("[proxy] unauthorized access attempt from %s", r.RemoteAddr)
+				logger.Audit("unauthorized_access", 
+					zap.String("remote_addr", r.RemoteAddr),
+					logger.Mask("provided_key", authHeader),
+				)
 				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte("Unauthorized: Missing or Invalid X-TGuard-Auth token"))
+				_, _ = w.Write([]byte("Unauthorized"))
 				return
 			}
 		}
 
-		proxy.ServeHTTP(w, r)
+		// 3. 限流校验
+		if s.config.RateLimit != nil {
+			// 提取 IP (支持 X-Forwarded-For)
+			clientIP := r.Header.Get("X-Forwarded-For")
+			if clientIP == "" {
+				clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
+			} else {
+				// 获取第一个 IP
+				clientIP = strings.Split(clientIP, ",")[0]
+			}
+			userID := r.Header.Get("X-User-ID")
+
+			if !s.config.RateLimit.Allow(clientIP, userID) {
+				w.Header().Set("Retry-After", "3")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"error": "rate_limit_exceeded", "retry_after": 3}`))
+				return
+			}
+		}
+
+		if s.proxy == nil {
+			w.WriteHeader(http.StatusNotImplemented)
+			_, _ = w.Write([]byte("Proxy not initialized"))
+			return
+		}
+
+		s.proxy.ServeHTTP(w, r)
 	})
 
 	return s

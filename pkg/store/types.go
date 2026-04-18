@@ -2,9 +2,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+var (
+	ErrInsufficientBudget = errors.New("insufficient budget")
 )
 
 // Record 定义写入结构
@@ -40,7 +45,11 @@ type Store interface {
 	GetRecentRequests(ctx context.Context, project string, limit int) ([]Record, error)
 	QueryProjects(ctx context.Context) ([]string, error)
 
+	// 原子扣减接口（同步事务）
+	DeductBudget(ctx context.Context, r Record, limit int64) error
+
 	// 管理接口
 	Archive(ctx context.Context, beforeDate string) (int, error) // 返回归档条数
 	Close() error                                               // 优雅关闭，排空队列
 }
+

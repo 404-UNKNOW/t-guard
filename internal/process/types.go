@@ -35,3 +35,9 @@ type Manager interface {
 	// Cleanup 强行清理子进程
 	Cleanup() error
 }
+
+// Config 定义进程管理配置
+type Config struct {
+	Whitelist []string
+	Timeout   time.Duration
+}

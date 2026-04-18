@@ -1,8 +1,6 @@
 package security
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"testing"
 	"time"
 )
@@ -32,30 +30,3 @@ func TestSecurity_CanUse(t *testing.T) {
 	}
 }
 
-// 验收标准：RSA 演示逻辑激活测试
-func TestSecurity_Activate(t *testing.T) {
-	m, _ := Init(nil)
-
-	// 构造包含 "mock-test" 的合法 JSON payload
-	info := LicenseInfo{
-		Tier:      "enterprise",
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-		Mock:      "mock-test",
-	}
-	payload, _ := json.Marshal(info)
-	
-	payloadBase64 := base64.StdEncoding.EncodeToString(payload)
-	sigBase64 := base64.StdEncoding.EncodeToString([]byte("dummy-signature"))
-	
-	licenseKey := payloadBase64 + "." + sigBase64
-	
-	err := m.Activate(licenseKey)
-	if err != nil {
-		t.Errorf("演示模式激活失败: %v", err)
-	}
-
-	verified, _ := m.Verify()
-	if verified.Tier != "enterprise" || !verified.IsValid {
-		t.Error("激活后状态未正确更新")
-	}
-}
