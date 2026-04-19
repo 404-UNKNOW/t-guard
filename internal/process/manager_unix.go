@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 )
 
 type unixManager struct {
@@ -30,34 +31,67 @@ func (m *unixManager) Run(ctx context.Context, cfg ChildConfig) error {
 	m.cmd.Stderr = os.Stderr
 	m.cmd.Stdin = os.Stdin
 
-	// 通用 Unix 进程组管理
+	// 1. 设置 PGID (Process Group ID) 以便统一管理整个进程树
 	m.cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
-		Pgid:    0,
 	}
-
-	// 调用平台特定的 SysProcAttr 补丁（由 platform_unix.go 提供）
 	m.applyPlatformSysProcAttr()
 
-	return m.cmd.Run()
+	// 2. 启动子进程
+	if err := m.cmd.Start(); err != nil {
+		return err
+	}
+
+	// 3. 阻塞等待子进程退出，确保资源回收 (避免僵尸进程)
+	// 使用 chan 配合 Wait 确保即使 context 取消也能正确处理 Wait 逻辑
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- m.cmd.Wait()
+	}()
+
+	select {
+	case err := <-waitDone:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (m *unixManager) ForwardSignal(sig os.Signal) error {
 	if m.cmd == nil || m.cmd.Process == nil {
 		return nil
 	}
-	pid := m.cmd.Process.Pid
-	if s, ok := sig.(syscall.Signal); ok {
-		return syscall.Kill(-pid, s)
+
+	// 向整个进程组发送信号 (负 PID 表示 PGID)
+	pgid, err := syscall.Getpgid(m.cmd.Process.Pid)
+	if err != nil {
+		return m.cmd.Process.Signal(sig)
 	}
-	return m.cmd.Process.Signal(sig)
+
+	return syscall.Kill(-pgid, sig.(syscall.Signal))
 }
 
 func (m *unixManager) Cleanup() error {
 	if m.cmd == nil || m.cmd.Process == nil {
 		return nil
 	}
-	pid := m.cmd.Process.Pid
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
-	return syscall.Kill(-pid, syscall.SIGKILL)
+
+	// 1. 尝试优雅终止 (SIGTERM)
+	_ = m.ForwardSignal(syscall.SIGTERM)
+	
+	// 2. 给予 5 秒宽限期
+	done := make(chan struct{})
+	go func() {
+		_ = m.cmd.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-time.After(5 * time.Second):
+		// 3. 超时强制杀掉整个进程组 (SIGKILL)
+		pgid, _ := syscall.Getpgid(m.cmd.Process.Pid)
+		return syscall.Kill(-pgid, syscall.SIGKILL)
+	}
 }

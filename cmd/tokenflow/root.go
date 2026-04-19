@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/99designs/keyring"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -56,4 +58,31 @@ func initConfig() {
 	} else {
 		// 配置文件不存在时，静默处理，由 run 命令决定是否开启向导
 	}
+}
+
+var setKeyCmd = &cobra.Command{
+	Use:   "set-key [provider] [key]",
+	Short: "Securely store an API key in the system keyring",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		provider := strings.ToUpper(args[0])
+		key := args[1]
+
+		kr, err := keyring.Open(keyring.Config{
+			ServiceName: "tokenflow",
+		})
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Storing key for %s in system keyring...\n", provider)
+		return kr.Set(keyring.Item{
+			Key:  provider + "_API_KEY",
+			Data: []byte(key),
+		})
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(setKeyCmd)
 }

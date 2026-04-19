@@ -71,7 +71,18 @@ func (m *windowsManager) Run(ctx context.Context, cfg ChildConfig) error {
 		_ = windows.AssignProcessToJobObject(handle, hProcess)
 	}
 
-	return m.cmd.Wait()
+	// 5. 等待退出或 context 取消
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- m.cmd.Wait()
+	}()
+
+	select {
+	case err := <-waitDone:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (m *windowsManager) ForwardSignal(sig os.Signal) error {

@@ -54,6 +54,22 @@ func LoadConfig(path string, isProduction bool) (*Config, error) {
 	// 处理敏感字段
 	cfg.loadSensitives(v)
 
+	// 注入安全凭证提供者
+	if cfg.AuthKey != "" {
+		// 如果配置文件有 AuthKey，我们保持它，但也可以选择通过环境变量 TG_GUARD_AUTH_TOKEN 覆盖
+		if envAuth := os.Getenv("TG_GUARD_AUTH_TOKEN"); envAuth != "" {
+			cfg.AuthKey = envAuth
+		}
+	}
+	
+	// 对上游 Token 进行解析覆盖示例
+	for name, urlStr := range cfg.Upstreams {
+		// 逻辑：如果环境变量中有 TG_GUARD_PROVIDER_API_KEY，后续在代理转发时注入
+		// 这里暂且为后续代理逻辑预留 hook，或者在 Config 中显式增加 Token 字段
+		_ = name
+		_ = urlStr
+	}
+
 	return &cfg, nil
 }
 

@@ -2,16 +2,20 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"sync"
+	"t-guard/internal/security"
 	"t-guard/pkg/logger"
 	"t-guard/pkg/route"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
@@ -28,6 +32,7 @@ type proxyServer struct {
 	handler http.Handler
 	ln      net.Listener
 	srv     *http.Server
+	mu      sync.RWMutex // 保护 ln 和 srv
 }
 
 // NewServer 创建高性能反向代理服务器
@@ -36,6 +41,11 @@ func NewServer(cfg Config) Server {
 
 	// 配置复用连接池
 	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment, // 支持系统代理
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: false,            // 强制 TLS 校验
+			MinVersion:         tls.VersionTLS12, // 安全最低版本
+		},
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,
@@ -44,29 +54,16 @@ func NewServer(cfg Config) Server {
 	proxy := &httputil.ReverseProxy{
 		Transport: transport,
 		Director: func(req *http.Request) {
-			// A. 获取路由决策
-			model := req.Header.Get("X-Model-Target")
-			project := req.Header.Get("X-Project-ID")
-
-			// 提取 IP 和 Headers
-			clientIP, _, _ := net.SplitHostPort(req.RemoteAddr)
-			headers := make(map[string]string)
-			for k, v := range req.Header {
-				if len(v) > 0 {
-					headers[k] = v[0]
-				}
-			}
-
-			decision, err := cfg.Router.Decide(req.Context(), route.Request{
-				Model:   model,
-				Project: project,
-				IP:      clientIP,
-				Headers: headers,
-			})
-			if err != nil {
-				log.Printf("[proxy] routing decision failed: %v", err)
-				// 通过 Context 传递路由错误
-				return
+			// A. 从 Context 获取预判决策
+			decision, ok := req.Context().Value("decision").(route.Decision)
+			if !ok {
+				// Fallback: 如果中间件没预判，则此处实时判
+				model := req.Header.Get("X-Model-Target")
+				project := req.Header.Get("X-Project-ID")
+				clientIP, _, _ := net.SplitHostPort(req.RemoteAddr)
+				decision, _ = cfg.Router.Decide(req.Context(), route.Request{
+					Model: model, Project: project, IP: clientIP,
+				})
 			}
 
 			// B. 目标重定向
@@ -75,23 +72,17 @@ func NewServer(cfg Config) Server {
 				targetURL = cfg.Upstreams[cfg.DefaultTarget]
 			}
 
-			if targetURL == nil {
-				log.Printf("[proxy] no upstream found for target: %s", decision.Target)
-				return
+			if targetURL != nil {
+				req.URL.Scheme = targetURL.Scheme
+				req.URL.Host = targetURL.Host
+				req.Host = targetURL.Host
 			}
-
-			req.URL.Scheme = targetURL.Scheme
-			req.URL.Host = targetURL.Host
-			req.Host = targetURL.Host
 
 			// C. 注入 Header
 			for k, v := range decision.Headers {
 				req.Header.Set(k, v)
 			}
 			req.Header.Set("X-TGuard-Rule", decision.RuleID)
-			
-			// 将决策存入 Context 以便 ErrorHandler 使用
-			*req = *req.WithContext(context.WithValue(req.Context(), "decision", decision))
 		},
 		ModifyResponse: s.modifyResponse,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -122,26 +113,41 @@ func NewServer(cfg Config) Server {
 
 	// 包装处理器：添加鉴权、健康检查与恢复机制
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := r.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = uuid.New().String()
+		}
+		
+		start := time.Now()
+		
+		// 结构化日志基础上下文
+		loggerWithContext := logger.Log.With(
+			zap.String("request_id", requestID),
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.String("remote_addr", r.RemoteAddr),
+		)
+
 		// Panic 恢复
 		defer func() {
 			if err := recover(); err != nil {
-				log.Printf("[proxy] panic recovered: %v", err)
+				loggerWithContext.Error("panic_recovered", zap.Any("error", err))
 				http.Error(w, "Internal Gateway Error", http.StatusInternalServerError)
 			}
 		}()
 
 		// 1. 公共端点 (健康检查与监控)
-		if r.URL.Path == "/health/live" {
+		if r.URL.Path == "/healthz" {
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("live"))
+			_, _ = w.Write([]byte("ok"))
 			return
 		}
 
-		if r.URL.Path == "/health/ready" {
-			// 检查数据库
+		if r.URL.Path == "/readyz" {
+			// 检查上游与数据库
 			if _, err := s.config.Store.QueryProjects(r.Context()); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte("db_not_ready"))
+				_, _ = w.Write([]byte("not_ready"))
 				return
 			}
 			w.WriteHeader(http.StatusOK)
@@ -154,43 +160,31 @@ func NewServer(cfg Config) Server {
 			return
 		}
 
-		// 1b. Admin API (仅限本地或带 Token 访问)
+		// 1b. Admin API
 		if strings.HasPrefix(r.URL.Path, "/admin/") {
 			s.handleAdmin(w, r)
 			return
 		}
 
-		// 2. 准入校验 (API Key 校验)
+		// 2. 准入校验
 		if s.config.AuthKey != "" {
 			authHeader := r.Header.Get("X-TGuard-Auth")
-			if authHeader != s.config.AuthKey {
+			if !security.SecureCompare(authHeader, s.config.AuthKey) {
 				logger.Audit("unauthorized_access", 
-					zap.String("remote_addr", r.RemoteAddr),
+					zap.String("request_id", requestID),
 					logger.Mask("provided_key", authHeader),
 				)
 				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte("Unauthorized"))
 				return
 			}
 		}
 
-		// 3. 限流校验
+		// 3. 限流
 		if s.config.RateLimit != nil {
-			// 提取 IP (支持 X-Forwarded-For)
-			clientIP := r.Header.Get("X-Forwarded-For")
-			if clientIP == "" {
-				clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
-			} else {
-				// 获取第一个 IP
-				clientIP = strings.Split(clientIP, ",")[0]
-			}
-			userID := r.Header.Get("X-User-ID")
-
-			if !s.config.RateLimit.Allow(clientIP, userID) {
-				w.Header().Set("Retry-After", "3")
-				w.Header().Set("Content-Type", "application/json")
+			clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+			if !s.config.RateLimit.Allow(clientIP, r.Header.Get("X-User-ID")) {
+				RequestTotal.WithLabelValues("unknown", "rate_limited").Inc()
 				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte(`{"error": "rate_limit_exceeded", "retry_after": 3}`))
 				return
 			}
 		}
@@ -201,8 +195,50 @@ func NewServer(cfg Config) Server {
 			return
 		}
 
+		// 1c. 预判路由与预算
+		model := r.Header.Get("X-Model-Target")
+		project := r.Header.Get("X-Project-ID")
+		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+
+		decision, _ := s.config.Router.Decide(r.Context(), route.Request{
+			Model: model, Project: project, IP: clientIP,
+		})
+
+		estimatedMaxCost := s.config.Pricing.CalculateCost(decision.Target, 0, 4000)
+		budgetDecision, _ := s.config.Billing.Allow(r.Context(), project, estimatedMaxCost)
+		if !budgetDecision.Allowed {
+			loggerWithContext.Warn("budget_exceeded", zap.String("project", project))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"error": "insufficient_budget", "message": "Daily budget limit reached"}`))
+			return
+		}
+
+		// 更新状态指标
+		status, _ := s.config.Billing.GetStatus(r.Context(), project)
+		BudgetRemaining.WithLabelValues(project).Set(float64(status.Limit - status.Used))
+
+		ctx := context.WithValue(r.Context(), "request_id", requestID)
+		ctx = context.WithValue(ctx, "frozen_amount", estimatedMaxCost)
+		ctx = context.WithValue(ctx, "decision", decision)
+		r = r.WithContext(ctx)
+
+		// 执行代理
 		s.proxy.ServeHTTP(w, r)
+		
+		// 记录请求成功指标
+		duration := time.Since(start)
+		RequestTotal.WithLabelValues(decision.Target, "success").Inc()
+		RequestDuration.WithLabelValues(decision.Target).Observe(duration.Seconds())
+		
+		loggerWithContext.Info("request_completed", 
+			zap.String("model", decision.Target),
+			zap.Duration("duration", duration),
+			zap.Int64("frozen_cost", estimatedMaxCost),
+		)
 	})
+
+
 
 	return s
 }
@@ -250,30 +286,39 @@ func (s *proxyServer) modifyResponse(resp *http.Response) error {
 
 func (s *proxyServer) Start(ctx context.Context) error {
 	var err error
-	s.ln, err = net.Listen("tcp", s.config.ListenAddr)
+	ln, err := net.Listen("tcp", s.config.ListenAddr)
 	if err != nil {
 		return err
 	}
 
+	s.mu.Lock()
+	s.ln = ln
 	s.srv = &http.Server{
 		Handler:      s.handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 0, // 流式响应不设写超时
 		IdleTimeout:  120 * time.Second,
 	}
+	s.mu.Unlock()
 
 	// 优雅关闭协程
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = s.srv.Shutdown(shutdownCtx)
+		s.mu.RLock()
+		if s.srv != nil {
+			_ = s.srv.Shutdown(shutdownCtx)
+		}
+		s.mu.RUnlock()
 	}()
 
-	return s.srv.Serve(s.ln)
+	return s.srv.Serve(ln)
 }
 
 func (s *proxyServer) Addr() net.Addr {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if s.ln == nil {
 		return nil
 	}

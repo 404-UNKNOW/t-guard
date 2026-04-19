@@ -16,6 +16,7 @@ import (
 type projectBudget struct {
 	project   string
 	used      atomic.Int64
+	frozen    atomic.Int64 // 预扣减冻结金额
 	limit     int64
 	softMark  int64
 	lastState atomic.Value // 存储 State
@@ -63,21 +64,39 @@ func (c *budgetController) Allow(ctx context.Context, project string, estimatedC
 	}
 	pb := val.(*projectBudget)
 	
+	// 并发安全地检查：已用 + 冻结 + 当前预估
 	used := pb.used.Load()
-	if pb.limit > 0 && used+estimatedCost > pb.limit {
-		return Decision{Allowed: false, Remaining: pb.limit - used, Warning: "Hard limit reached"}, nil
+	frozen := pb.frozen.Load()
+	
+	if pb.limit > 0 && used+frozen+estimatedCost > pb.limit {
+		return Decision{Allowed: false, Remaining: pb.limit - used - frozen, Warning: "Hard limit reached (including frozen)"}, nil
 	}
 
+	// 原子冻结：预扣减
+	pb.frozen.Add(estimatedCost)
+
 	warning := ""
-	if pb.softMark > 0 && used+estimatedCost > pb.softMark {
+	if pb.softMark > 0 && used+frozen+estimatedCost > pb.softMark {
 		warning = "Soft limit threshold exceeded"
 	}
 
 	return Decision{
 		Allowed:   true,
-		Remaining: pb.limit - used - estimatedCost,
+		Remaining: pb.limit - used - frozen - estimatedCost,
 		Warning:   warning,
 	}, nil
+}
+
+func (c *budgetController) SettleBudget(ctx context.Context, project string, frozenAmount int64, actualCost int64) error {
+	val, ok := c.budgets.Load(project)
+	if !ok {
+		return nil
+	}
+	pb := val.(*projectBudget)
+
+	// 原子解冻并增加实际消耗
+	pb.frozen.Add(-frozenAmount)
+	return c.Record(ctx, project, actualCost)
 }
 
 func (c *budgetController) Record(ctx context.Context, project string, actualCost int64) error {

@@ -120,6 +120,10 @@ var runCmd = &cobra.Command{
 		// 7. 优雅关闭序列
 		sig := <-sigChan
 		fmt.Printf("\n收到信号 %v，正在安全退出...\n", sig)
+		
+		// 向子进程转发信号 (如果有)
+		_ = application.Process.ForwardSignal(sig)
+		
 		cancel()
 		
 		// 给予子进程和清理工作时间

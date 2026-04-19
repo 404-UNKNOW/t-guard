@@ -41,6 +41,8 @@ type Decision struct {
 // Controller 核心控制器接口
 type Controller interface {
 	Allow(ctx context.Context, project string, estimatedCost int64) (Decision, error)
+	// SettleBudget 原子解冻并结算实际费用
+	SettleBudget(ctx context.Context, project string, frozenAmount int64, actualCost int64) error
 	Record(ctx context.Context, project string, actualCost int64) error
 	GetStatus(ctx context.Context, project string) (Status, error)
 	
