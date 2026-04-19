@@ -4,14 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
+	"t-guard/pkg/logger"
 	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
+	"go.uber.org/zap"
 )
 
 type sqliteStore struct {
@@ -40,7 +42,9 @@ func NewSQLiteStore(dsn string) (Store, error) {
 	}
 
 	if err := s.initSchema(); err != nil {
-		_ = db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			logger.Log.Error("failed to close database during initialization failure", zap.Error(closeErr))
+		}
 		return nil, err
 	}
 
@@ -107,7 +111,7 @@ func (s *sqliteStore) worker() {
 			return
 		}
 		if err := s.flushBatch(batch); err != nil {
-			log.Printf("[store] flush failed: %v", err)
+			logger.Log.Error("flush failed", zap.Error(err))
 		}
 		batch = batch[:0]
 	}
@@ -135,13 +139,21 @@ func (s *sqliteStore) flushBatch(batch []Record) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Log.Error("failed to rollback transaction", zap.Error(err))
+		}
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO records (id, trace_id, project, model, input_tokens, output_tokens, cost_millicents, route_target, duration_ms, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			logger.Log.Error("failed to close statement", zap.Error(err))
+		}
+	}()
 
 	for _, r := range batch {
 		tsStr := r.Timestamp.UTC().Format("2006-01-02 15:04:05")
@@ -192,7 +204,11 @@ func (s *sqliteStore) GetRecentRequests(ctx context.Context, project string, lim
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			logger.Log.Error("failed to close rows", zap.Error(err))
+		}
+	}()
 
 	var results []Record
 	for rows.Next() {
@@ -213,7 +229,11 @@ func (s *sqliteStore) QueryProjects(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			logger.Log.Error("failed to close rows", zap.Error(err))
+		}
+	}()
 	var projects []string
 	for rows.Next() {
 		var p string
@@ -241,5 +261,9 @@ func (s *sqliteStore) Close() error {
 	}
 	close(s.queue)
 	s.wg.Wait()
-	return s.db.Close()
+	err := s.db.Close()
+	if err != nil {
+		logger.Log.Error("failed to close database during store closure", zap.Error(err))
+	}
+	return err
 }

@@ -85,15 +85,15 @@ func RunWizard() (*Config, error) {
 	// 4. 保存为 config.yaml
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	if err := os.WriteFile("config.yaml", data, 0644); err != nil {
-		return nil, err
+	if err := os.WriteFile("config.yaml", data, 0600); err != nil { // 使用更安全的 600 权限
+		return nil, fmt.Errorf("failed to write config file: %w", err)
 	}
 
 	fmt.Println("\n✅ Configuration saved to config.yaml")

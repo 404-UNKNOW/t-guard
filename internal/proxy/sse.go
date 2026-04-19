@@ -7,7 +7,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"t-guard/pkg/logger"
 	"t-guard/pkg/token"
+
+	"go.uber.org/zap"
 )
 
 // handleSSE 处理流式响应拦截，实现健壮的行解析与并发安全扣费
@@ -24,8 +27,16 @@ func (s *proxyServer) handleSSE(resp *http.Response) error {
 
 	go func() {
 		// 确保所有出口都能关闭上游 Body，防止连接泄露
-		defer originalBody.Close()
-		defer pw.Close()
+		defer func() {
+			if err := originalBody.Close(); err != nil {
+				logger.Log.Error("failed to close original response body", zap.Error(err))
+			}
+		}()
+		defer func() {
+			if err := pw.Close(); err != nil {
+				logger.Log.Error("failed to close pipe writer", zap.Error(err))
+			}
+		}()
 
 		sw := s.config.Billing.NewStreamWriter(pw, project)
 		reader := bufio.NewReader(originalBody)

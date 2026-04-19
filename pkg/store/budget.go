@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
-	"log"
+	"t-guard/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
 // DeductBudget 实现原子扣款：BEGIN IMMEDIATE -> SELECT -> CHECK -> UPDATE -> INSERT -> COMMIT
@@ -14,7 +17,11 @@ func (s *sqliteStore) DeductBudget(ctx context.Context, r Record, limit int64) e
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Log.Error("failed to rollback transaction", zap.Error(err))
+		}
+	}()
 
 	dateStr := r.Timestamp.UTC().Format("2006-01-02")
 
@@ -22,7 +29,7 @@ func (s *sqliteStore) DeductBudget(ctx context.Context, r Record, limit int64) e
 	var currentUsed int64
 	err = tx.QueryRowContext(ctx, `SELECT total_millicents FROM daily_budgets WHERE project = ? AND date = ?`, r.Project, dateStr).Scan(&currentUsed)
 	if err != nil && err != sql.ErrNoRows {
-		log.Printf("[store] query balance failed: %v", err)
+		logger.Log.Error("query balance failed", zap.Error(err))
 		return err
 	}
 

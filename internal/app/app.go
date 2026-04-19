@@ -8,6 +8,7 @@ import (
 	"t-guard/internal/security"
 	"t-guard/internal/ui"
 	"t-guard/pkg/budget"
+	"t-guard/pkg/logger"
 	"t-guard/pkg/pricing"
 	"t-guard/pkg/ratelimit"
 	"t-guard/pkg/route"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"go.uber.org/zap"
 )
 
 type App struct {
@@ -57,7 +59,9 @@ func InitializeApp(cfg *Config) (*App, func(), error) {
 	// 2. M8: Security 安全层
 	sec, err := security.Init(s)
 	if err != nil {
-		_ = s.Close()
+		if cerr := s.Close(); cerr != nil {
+			logger.Log.Error("failed to close store during cleanup", zap.Error(cerr))
+		}
 		return nil, nil, errors.New(errors.ErrSecurity, "INIT_FAILED", "M8 init failed", err)
 	}
 
@@ -80,7 +84,9 @@ func InitializeApp(cfg *Config) (*App, func(), error) {
 	// 5. M3: Billing 计费
 	billing, err := budget.NewController(s, nil) // 暂传 nil 兼容，后续需要 mapstructure 转换
 	if err != nil {
-		_ = s.Close()
+		if cerr := s.Close(); cerr != nil {
+			logger.Log.Error("failed to close store during cleanup", zap.Error(cerr))
+		}
 		return nil, nil, errors.New(errors.ErrBilling, "INIT_FAILED", "M3 init failed", err)
 	}
 
