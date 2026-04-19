@@ -47,7 +47,33 @@ A: **No**. T-Guard is designed to be user-friendly. Just edit the `config.yaml` 
 A: **Yes**. T-Guard intercepts streaming responses (like ChatGPT's typing effect) to calculate tokens with millicent precision.
 
 **Q: Is it secure?**
-A: Yes. It supports `X-TGuard-Auth` token validation and uses system keyrings for sensitive credential storage.
+A: Yes. T-Guard has been hardened for production environments, including RSA license verification, secure config loading, and sub-process isolation.
+
+---
+
+## 🛡️ Security & Hardening
+
+T-Guard follows industry-standard security practices:
+
+- **Identity & Access**: RSA signature verification for licenses (with Nonce replay protection).
+- **Credential Safety**: Config file permission checks (600) and automatic sensitive field masking in logs.
+- **Traffic Control**: Token-bucket rate limiting (IP-based and User-based).
+- **Process Isolation**: Command whitelist and sensitive environment variable filtering for child processes.
+- **Monitoring**: Structured `zap` logging with automated field masking.
+
+### Vulnerability Scanning
+We use `govulncheck` to ensure no known vulnerabilities exist in our dependencies.
+```bash
+# Install and run scan
+go install golang.org/x/vuln/cmd/govulncheck@latest
+govulncheck ./...
+```
+
+### Production Deployment
+For containerized environments, our `Dockerfile` implements:
+- **Multi-stage builds** for a minimal attack surface.
+- **Non-root execution** (`USER tguard`).
+- **Strict permissions** (500 for binary, 600 for config).
 
 ---
 
