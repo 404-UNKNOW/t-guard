@@ -29,7 +29,7 @@ jobs:
       - name: Run Lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.65.0
           # 如果项目没有配置文件，可以指定跳过
           args: --timeout=5m
 
