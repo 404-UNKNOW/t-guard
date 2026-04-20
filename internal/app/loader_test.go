@@ -13,12 +13,20 @@ listen: "127.0.0.1:8080"
 auth_key: "plain-text-key"
 `
 	configFile := "test_config.yaml"
-	os.WriteFile(configFile, []byte(configContent), 0644)
-	defer os.Remove(configFile)
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	defer func() {
+		_ = os.Remove(configFile)
+	}()
 
 	t.Run("EnvPriority", func(t *testing.T) {
-		os.Setenv("TGUARD_AUTH_KEY", "env-secret-key")
-		defer os.Unsetenv("TGUARD_AUTH_KEY")
+		if err := os.Setenv("TGUARD_AUTH_KEY", "env-secret-key"); err != nil {
+			t.Fatalf("Setenv failed: %v", err)
+		}
+		defer func() {
+			_ = os.Unsetenv("TGUARD_AUTH_KEY")
+		}()
 
 		cfg, err := LoadConfig(configFile, false)
 		if err != nil {
@@ -32,7 +40,9 @@ auth_key: "plain-text-key"
 
 	t.Run("InsecurePermissionsInProduction", func(t *testing.T) {
 		// 0644 是世界可读，在生产模式下应该报错
-		os.Chmod(configFile, 0644)
+		if err := os.Chmod(configFile, 0644); err != nil {
+			t.Fatalf("Chmod failed: %v", err)
+		}
 		_, err := LoadConfig(configFile, true)
 		if err == nil {
 			t.Error("Should have failed due to insecure permissions, but succeeded")
@@ -43,7 +53,9 @@ auth_key: "plain-text-key"
 
 	t.Run("SecurePermissionsInProduction", func(t *testing.T) {
 		// 0600 只有所有者可读写
-		os.Chmod(configFile, 0600)
+		if err := os.Chmod(configFile, 0600); err != nil {
+			t.Fatalf("Chmod failed: %v", err)
+		}
 		_, err := LoadConfig(configFile, true)
 		if err != nil {
 			t.Errorf("Should have succeeded with 0600 permissions, but failed: %v", err)

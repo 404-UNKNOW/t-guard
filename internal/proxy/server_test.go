@@ -111,7 +111,9 @@ func TestProxy_StreamingBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to call proxy: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// 4. 读取响应流并捕捉熔断信号
 	scanner := bufio.NewScanner(resp.Body)
